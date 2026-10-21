@@ -623,6 +623,20 @@ function parkVideo(v){
 
 // Splicing the deck shifts every index, which invalidates both the pool and
 // the failed set since they are keyed by round index. Drop them wholesale.
+// Leaving the round screen must silence every player, including the ones
+// buffering off-screen in the pool — otherwise audio keeps running under the
+// leaderboard.
+function silence(){
+  $("frame").querySelectorAll("video").forEach(v => {
+    try { v.pause(); } catch (e) {}
+    v.muted = true;
+  });
+  vpool.forEach(v => {
+    try { v.pause(); } catch (e) {}
+    v.muted = true;
+  });
+}
+
 function resetPool(){
   for (const k of [...vpool.keys()]) evictVideo(k);
   failed.clear();
@@ -754,7 +768,7 @@ function paintRing(){
 
 /* ---------------- finish ---------------- */
 function finish(){
-  stopTimer(); show("s-board");
+  stopTimer(); silence(); show("s-board");
   const played = S.history.length;
   const ranked = PLAYERS.map(p => [p, S.scores[p] || 0]).sort((a, b) => b[1] - a[1]);
   const best = ranked.length ? ranked[0][1] : 0;
