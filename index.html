@@ -534,6 +534,10 @@ function render(){
 function reveal(){
   if (S.revealed || S.rolling) return;
   stopTimer();
+  // Cut the clip the instant Reveal is pressed: the spin and the ding are the
+  // dramatic beat, and a TikTok still blaring underneath muddies it.
+  const cur = $("frame").querySelector("video");
+  if (cur){ try { cur.pause(); } catch (e) {} }
   S.rolling = true;
   $("rev").classList.add("on");
   const whoEl = $("who"), answer = DECK[S.i].answer;
@@ -572,6 +576,7 @@ function reveal(){
 /* ---------------- scoreboard / scoring ---------------- */
 // Swap the current round from its cover to the real TikTok embed.
 function playHere(){
+  if (S.revealed || S.rolling) return;
   const r = DECK[S.i];
   if (!r || (!r.video && !r.embed)){ toast("No video for this round"); return; }
   S.mode = "video";
@@ -660,6 +665,7 @@ function embedSrc(r){ return r.embed + "?t=" + Date.now(); }
 // player (clears a stalled buffer); only a round with no local file falls back
 // to TikTok's embed, which is the rate-limited path.
 function reloadRound(){
+  if (S.revealed || S.rolling) return;
   const r = DECK[S.i];
   if (!r){ return; }
   if (r.video && !failed.has(S.i)){
@@ -845,9 +851,15 @@ document.addEventListener("keydown", e => {
     $("cap").classList.toggle("on");
     return;
   }
-  if (k === "r"){ e.preventDefault(); reloadRound(); return; }
+  if (k === "r"){
+    e.preventDefault();
+    if (S.revealed || S.rolling){ toast("Already revealed"); return; }
+    reloadRound();
+    return;
+  }
   if (k === "v"){
     const r = DECK[S.i];
+    if (S.revealed || S.rolling){ toast("Already revealed"); return; }
     if (!r || (!r.video && !r.embed)){ toast("No video for this round"); return; }
     S.mode = S.mode === "video" ? "cover" : "video";
     toast(S.mode === "video" ? "Video" : "Still image");
