@@ -243,6 +243,7 @@
   .row.first .rk,.row.first .pt{color:var(--gold)}
   .row.first .nm{font-size:clamp(17px,2.4vh,21px)}
 
+  #vpool{position:fixed; width:0; height:0; overflow:hidden; opacity:0; pointer-events:none}
   .toast{
     position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(70px);
     background:#1b1b26; border:1px solid var(--line); color:var(--ink);
@@ -316,6 +317,7 @@
   </div>
 </section>
 
+<div id="vpool" aria-hidden="true"></div>
 <div class="toast" id="toast"></div>
 
 <script src="https://stddielncxelpqangfyk.supabase.co/storage/v1/object/public/guess-the-repost/rounds.js"></script>
@@ -467,47 +469,54 @@ function render(){
   $("cap").textContent = r.note || "";
 
   const f = $("frame");
-  f.querySelectorAll(".media").forEach(n => n.remove());
+  f.querySelectorAll(".media").forEach(n => {
+    if (n.tagName === "VIDEO") parkVideo(n); else n.remove();
+  });
+  f.style.backgroundImage = ""; f.classList.remove("backed");
+
   let el;
   if (r.demo){
-    f.style.backgroundImage = ""; f.classList.remove("backed");
     el = document.createElement("div");
     el.className = "media empty";
     el.innerHTML = `<b>Demo round</b><br>A repost fills this frame.<br><br>
       Put images in <code>media/</code> named <code>${esc(r.answer.toLowerCase())}-1.jpg</code>,
       then run <code>./build.sh</code>.`;
+  } else if (r.video && !failed.has(S.i)){
+    // Bilu's approach (VideoFeedViewModel): keep a small pool of players around
+    // the current index, each buffering silently, so moving to the next round
+    // plays something already loaded instead of starting a fresh network fetch.
+    el = warmVideo(S.i);
+    if (el){
+      el.muted = S.muted;
+      el.currentTime = 0;
+      // Unmuted autoplay needs a prior gesture; fall back to muted rather than
+      // leaving a frozen first frame.
+      el.play().catch(() => { el.muted = true; el.play().catch(() => {}); });
+    } else {
+      el = coverImg(r);
+    }
   } else if (S.mode === "video" && r.embed){
-    // Paint the cover behind the iframe: TikTok's embed sometimes renders a
-    // blank black box, and a round you can't see is a round you can't guess.
-    f.style.backgroundImage = r.src ? `url("${r.src}")` : "";
-    f.classList.add("backed");
-    // Official TikTok embed: real video with sound. Needs network, and TikTok
-    // rate-limits aggressively — V falls back to covers if it won't load.
+    // The cover sits behind the iframe: TikTok's embed sometimes paints a blank
+    // black box, and a round you cannot see is a round you cannot guess.
+    if (r.poster || r.src){
+      f.style.backgroundImage = `url("${r.poster || r.src}")`;
+      f.classList.add("backed");
+    }
     el = document.createElement("iframe");
     el.className = "media"; el.src = embedSrc(r);
     el.setAttribute("allow", "autoplay; encrypted-media; fullscreen");
     el.setAttribute("scrolling", "no");
-    f.style.backgroundImage = ""; f.classList.remove("backed");
-  } else if (r.video){
-    el = document.createElement("video");
-    el.className = "media";
-    el.src = r.src;
-    if (r.poster) el.poster = r.poster;
-    el.autoplay = true; el.loop = true; el.playsInline = true;
-    el.controls = false;
-    el.muted = S.muted;
-    // Browsers block unmuted autoplay until the page has been interacted with.
-    // The host has always clicked Start by now, but fall back to muted rather
-    // than showing a frozen first frame.
-    el.play().catch(() => { el.muted = true; el.play().catch(() => {}); });
-    el.onclick = () => { el.muted = !el.muted; toast(el.muted ? "Muted" : "Sound on"); };
   } else {
-    f.style.backgroundImage = ""; f.classList.remove("backed");
-    el = document.createElement("img");
-    el.className = "media"; el.src = r.src; el.alt = "repost";
-    if (r.embed){ el.style.cursor = "pointer"; el.onclick = () => playHere(); }
+    el = coverImg(r);
   }
   f.insertBefore(el, f.firstChild);
+
+  // Warm the next round and drop anything outside prev/current/next.
+  warmVideo(S.i + 1);
+  for (const k of [...vpool.keys()]) {
+    if (k < S.i - 1 || k > S.i + 1) evictVideo(k);
+  }
+
   const canVid = !!r.embed && !r.video && !r.demo && !S.revealed;
   $("play").style.display   = (canVid && S.mode === "cover") ? "flex" : "none";
   $("reload").style.display = (canVid && S.mode === "video") ? "flex" : "none";
@@ -567,6 +576,59 @@ function playHere(){
   if (!r || !r.embed){ toast("No video for this round"); return; }
   S.mode = "video";
   render();
+}
+
+/* ---- video pool, modelled on Bilu's VideoFeedViewModel ---- */
+const vpool = new Map();   // round index -> <video>, buffering silently
+const failed = new Set();  // rounds whose file errored; fall back to the cover
+
+function coverImg(r){
+  const im = document.createElement("img");
+  im.className = "media";
+  im.src = r.poster || r.src;
+  im.alt = "repost";
+  if (r.embed){ im.style.cursor = "pointer"; im.onclick = () => playHere(); }
+  return im;
+}
+
+function warmVideo(i){
+  const r = DECK[i];
+  if (!r || !r.video) return null;
+  if (failed.has(i)){ evictVideo(i); return null; }
+  if (vpool.has(i)) return vpool.get(i);
+  const v = document.createElement("video");
+  v.className = "media";
+  v.src = r.src;
+  if (r.poster) v.poster = r.poster;
+  v.loop = true; v.controls = false; v.muted = true;
+  v.playsInline = true; v.setAttribute("playsinline", "");
+  v.preload = "auto";
+  v.onerror = () => {
+    failed.add(i);
+    evictVideo(i);
+    if (i === S.i){ toast("Video unavailable — showing the cover"); render(); }
+  };
+  v.onclick = () => { v.muted = !v.muted; S.muted = v.muted;
+                      toast(v.muted ? "Muted" : "Sound on"); };
+  $("vpool").appendChild(v);   // in the DOM but hidden, so it actually buffers
+  vpool.set(i, v);
+  return v;
+}
+
+function parkVideo(v){
+  try { v.pause(); } catch (e) {}
+  v.muted = true;
+  $("vpool").appendChild(v);
+}
+
+function evictVideo(i){
+  const v = vpool.get(i);
+  if (!v) return;
+  try { v.pause(); } catch (e) {}
+  v.removeAttribute("src");
+  try { v.load(); } catch (e) {}
+  v.remove();
+  vpool.delete(i);
 }
 
 // Always request a unique URL. TikTok will otherwise serve a cached
@@ -732,6 +794,7 @@ document.addEventListener("keydown", e => {
     S.muted = !S.muted;
     const v = $("frame").querySelector("video");
     if (v) v.muted = S.muted;
+    vpool.forEach((p, k) => { if (k !== S.i) p.muted = true; });
     toast(S.muted ? "Sound off" : "Sound on");
     return;
   }
