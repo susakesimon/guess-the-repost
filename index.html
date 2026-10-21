@@ -481,7 +481,7 @@ function render(){
     el.innerHTML = `<b>Demo round</b><br>A repost fills this frame.<br><br>
       Put images in <code>media/</code> named <code>${esc(r.answer.toLowerCase())}-1.jpg</code>,
       then run <code>./build.sh</code>.`;
-  } else if (r.video && !failed.has(S.i)){
+  } else if (r.video && S.mode === "video" && !failed.has(S.i)){
     // Bilu's approach (VideoFeedViewModel): keep a small pool of players around
     // the current index, each buffering silently, so moving to the next round
     // plays something already loaded instead of starting a fresh network fetch.
@@ -517,9 +517,9 @@ function render(){
     if (k < S.i - 1 || k > S.i + 1) evictVideo(k);
   }
 
-  const canVid = !!r.embed && !r.video && !r.demo && !S.revealed;
-  $("play").style.display   = (canVid && S.mode === "cover") ? "flex" : "none";
-  $("reload").style.display = (canVid && S.mode === "video") ? "flex" : "none";
+  const hasMedia = (r.video || r.embed) && !r.demo && !S.revealed;
+  $("play").style.display   = (hasMedia && S.mode === "cover") ? "flex" : "none";
+  $("reload").style.display = (hasMedia && S.mode === "video") ? "flex" : "none";
   f.classList.remove("in"); void f.offsetWidth; f.classList.add("in");
 
   // preload the next cover so the cut is instant
@@ -573,7 +573,7 @@ function reveal(){
 // Swap the current round from its cover to the real TikTok embed.
 function playHere(){
   const r = DECK[S.i];
-  if (!r || !r.embed){ toast("No video for this round"); return; }
+  if (!r || (!r.video && !r.embed)){ toast("No video for this round"); return; }
   S.mode = "video";
   render();
 }
@@ -656,12 +656,20 @@ function evictVideo(i){
 // "ratelimit triggered" page for the same URL even once the limit has lifted.
 function embedSrc(r){ return r.embed + "?t=" + Date.now(); }
 
-// TikTok rate-limits its embed endpoint aggressively: a couple of loads in
-// quick succession and it serves "ratelimit triggered" instead of the player.
-// This re-requests the current round's embed on demand.
-function reloadEmbed(){
+// Reload the current round's media. For a local file that means rebuilding the
+// player (clears a stalled buffer); only a round with no local file falls back
+// to TikTok's embed, which is the rate-limited path.
+function reloadRound(){
   const r = DECK[S.i];
-  if (!r || !r.embed){ toast("No video for this round"); return; }
+  if (!r){ return; }
+  if (r.video && !failed.has(S.i)){
+    evictVideo(S.i);
+    S.mode = "video";
+    render();
+    toast("Reloaded");
+    return;
+  }
+  if (!r.embed){ toast("Nothing to reload"); return; }
   S.mode = "video";
   const f = $("frame");
   f.querySelectorAll(".media").forEach(n => n.remove());
@@ -801,7 +809,7 @@ $("startBtn").onclick = start;
 $("mainBtn").onclick = () => S.revealed ? next() : reveal();
 $("skipBtn").onclick = skip;
 $("play").onclick = playHere;
-$("reload").onclick = reloadEmbed;
+$("reload").onclick = reloadRound;
 $("endBtn").onclick = () => { if (S.revealed) commit(); finish(); };
 
 document.addEventListener("keydown", e => {
@@ -832,13 +840,17 @@ document.addEventListener("keydown", e => {
 
   if (e.code === "Space"){ e.preventDefault(); S.revealed ? next() : reveal(); return; }
   if (k === "u"){ e.preventDefault(); undo(); return; }
-  if (k === "h"){ $("cap").classList.toggle("on"); return; }
-  if (k === "r"){ e.preventDefault(); reloadEmbed(); return; }
+  if (k === "h"){
+    if (!DECK[S.i] || !DECK[S.i].note){ toast("No caption for this one"); return; }
+    $("cap").classList.toggle("on");
+    return;
+  }
+  if (k === "r"){ e.preventDefault(); reloadRound(); return; }
   if (k === "v"){
     const r = DECK[S.i];
-    if (!r || !r.embed){ toast("No video for this round"); return; }
+    if (!r || (!r.video && !r.embed)){ toast("No video for this round"); return; }
     S.mode = S.mode === "video" ? "cover" : "video";
-    toast(S.mode === "video" ? "Videos on — needs wifi" : "Back to covers");
+    toast(S.mode === "video" ? "Video" : "Still image");
     render();
     return;
   }
