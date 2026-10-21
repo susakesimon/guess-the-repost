@@ -621,6 +621,13 @@ function parkVideo(v){
   $("vpool").appendChild(v);
 }
 
+// Splicing the deck shifts every index, which invalidates both the pool and
+// the failed set since they are keyed by round index. Drop them wholesale.
+function resetPool(){
+  for (const k of [...vpool.keys()]) evictVideo(k);
+  failed.clear();
+}
+
 function evictVideo(i){
   const v = vpool.get(i);
   if (!v) return;
@@ -704,9 +711,11 @@ function next(){
   if (S.i >= DECK.length) finish(); else render();
 }
 function skip(){
-  if (S.revealed) return;
+  if (S.revealed || S.rolling) return;
   DECK.splice(S.i, 1);
+  resetPool();
   if (!DECK.length || S.i >= DECK.length) return finish();
+  sfx.next();
   render();
 }
 function undo(){
