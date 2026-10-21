@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Guess the Repost</title>
+<style>
+  :root{
+    --bg:#08080f; --card:#14141f; --line:#282838;
+    --ink:#f4f4f8; --dim:#9898ad; --faint:#5a5a72;
+    --hot:#ff2d78; --cool:#4dd6ff; --gold:#ffc93c; --good:#38e08f;
+  }
+  *{box-sizing:border-box; margin:0; padding:0}
+  html,body{height:100%}
+  body{
+    background:var(--bg); color:var(--ink); overflow:hidden;
+    font:16px/1.45 ui-rounded,-apple-system,"SF Pro Rounded",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  /* ambient wash so a flat dark TV doesn't look dead */
+  body::before{
+    content:''; position:fixed; inset:-20%; z-index:0; pointer-events:none;
+    background:
+      radial-gradient(45% 45% at 15% 12%, rgba(255,45,120,.16), transparent 70%),
+      radial-gradient(40% 40% at 85% 88%, rgba(77,214,255,.13), transparent 70%);
+    filter:blur(30px);
+  }
+  .screen{
+    position:fixed; inset:0; z-index:1; display:none;
+    flex-direction:column; padding:clamp(16px,2.5vh,30px) clamp(16px,3vw,44px);
+  }
+  .screen.on{display:flex}
+  button{font:inherit; cursor:pointer; border:0; transition:transform .1s, filter .15s, background .15s}
+  button:active{transform:scale(.97)}
+  .big{
+    background:linear-gradient(100deg,var(--hot),#ff6a3d); color:#fff;
+    font-weight:900; font-size:clamp(17px,2.1vh,21px); padding:.85em 2.4em;
+    border-radius:14px; box-shadow:0 10px 36px rgba(255,45,120,.32);
+  }
+  .ghost{
+    background:transparent; border:1px solid var(--line); color:var(--dim);
+    padding:.7em 1.4em; font-weight:700; font-size:clamp(13px,1.6vh,15px); border-radius:12px;
+  }
+  .ghost:hover{color:var(--ink); border-color:#4a4a62}
+  kbd{
+    background:#15151f; border:1px solid var(--line); border-radius:6px;
+    padding:2px 7px; font:inherit; font-size:12px; color:var(--dim);
+  }
+
+  /* ---------------- title ---------------- */
+  #s-title{align-items:center; justify-content:center; text-align:center}
+  .logo{
+    font-size:clamp(46px,11vh,120px); line-height:.92; font-weight:900; letter-spacing:-.035em;
+    background:linear-gradient(100deg,var(--hot),var(--gold) 55%,var(--cool));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .blurb{color:var(--dim); margin:clamp(12px,2vh,20px) 0 clamp(18px,3vh,30px); font-size:clamp(15px,1.9vh,19px)}
+  .roster{display:flex; flex-wrap:wrap; gap:9px; justify-content:center; max-width:820px; margin-bottom:clamp(18px,3vh,32px)}
+  .roster .p{
+    background:var(--card); border:1px solid var(--line); border-radius:999px;
+    padding:8px 9px 8px 17px; font-weight:700; font-size:15px;
+    display:flex; align-items:center; gap:9px;
+  }
+  .roster .p b{font-weight:700}
+  .roster .p .ct{color:var(--faint); font-size:12px; font-weight:800}
+  .roster .p .ct.has{color:var(--good)}
+  .roster .x{
+    background:none; border:0; color:var(--faint); font-size:17px; line-height:1;
+    padding:0 5px; border-radius:50%;
+  }
+  .roster .x:hover{color:var(--hot)}
+  .addp{
+    background:transparent; border:1px dashed var(--line); color:var(--faint);
+    border-radius:999px; padding:9px 18px; font-weight:700; font-size:15px;
+  }
+  .addp:hover{color:var(--ink); border-color:var(--dim)}
+  .hint{color:#55556b; font-size:clamp(11px,1.5vh,13px); margin-top:clamp(14px,2.5vh,24px); line-height:2.1}
+
+  /* ---------------- round ---------------- */
+  #s-round{gap:clamp(10px,1.6vh,18px)}
+  .topbar{display:flex; align-items:center; gap:16px; flex:0 0 auto}
+  .count{font-weight:900; font-size:clamp(14px,1.9vh,17px); letter-spacing:.02em; white-space:nowrap}
+  .count i{color:var(--faint); font-style:normal; font-weight:700}
+  .track{flex:1; height:5px; background:#17171f; border-radius:99px; overflow:hidden}
+  .track i{display:block; height:100%; border-radius:99px;
+    background:linear-gradient(90deg,var(--hot),var(--gold)); transition:width .4s cubic-bezier(.4,0,.2,1)}
+  .ring{width:38px; height:38px; flex:0 0 auto; position:relative; display:none}
+  .ring.on{display:block}
+  .ring svg{transform:rotate(-90deg)}
+  .ring circle{fill:none; stroke-width:4; stroke-linecap:round}
+  .ring .bg{stroke:#1e1e2a}
+  .ring .fg{stroke:var(--cool); transition:stroke-dashoffset 1s linear, stroke .3s}
+  .ring.warn .fg{stroke:var(--hot)}
+  .ring b{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+    font-size:13px; font-weight:900;
+  }
+
+  .stage{
+    flex:1 1 auto; min-height:0; display:flex; align-items:center; justify-content:center;
+    position:relative;
+  }
+  .frame{
+    height:100%; max-width:100%; border-radius:20px; overflow:hidden; position:relative;
+    background:var(--card); border:1px solid var(--line);
+    box-shadow:0 24px 70px rgba(0,0,0,.6);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .frame img{height:100%; width:auto; max-width:100%; object-fit:contain; display:block}
+  .frame.backed{
+    background-size:contain; background-position:center; background-repeat:no-repeat;
+  }
+  .frame.backed::after{
+    content:'video unavailable — showing the thumbnail';
+    position:absolute; left:50%; bottom:10px; transform:translateX(-50%);
+    font-size:11px; color:var(--faint); white-space:nowrap; pointer-events:none;
+  }
+  .frame iframe{width:min(340px,86vw); height:100%; min-height:560px; border:0; background:transparent}
+  .frame.in{animation:slideIn .42s cubic-bezier(.2,.9,.3,1)}
+  @keyframes slideIn{
+    from{opacity:0; transform:translateY(22px) scale(.97)}
+    to{opacity:1; transform:none}
+  }
+  .empty{text-align:center; color:var(--dim); padding:46px; line-height:1.9; max-width:440px}
+  .empty code{background:#0b0b12; padding:3px 8px; border-radius:6px; color:var(--cool); font-size:13px}
+
+  .play{
+    position:absolute; right:12px; top:12px; display:none; align-items:center; gap:7px;
+    background:rgba(8,8,15,.78); backdrop-filter:blur(10px);
+    border:1px solid rgba(255,255,255,.16); color:var(--ink);
+    border-radius:999px; padding:8px 15px 8px 13px; font-size:13px; font-weight:800;
+  }
+  .play:hover{background:rgba(255,45,120,.85); border-color:transparent}
+  .play.reload{right:12px; top:12px}
+  .play span{font-size:12px; letter-spacing:.01em}
+
+  /* caption hint */
+  .cap{
+    position:absolute; left:50%; bottom:14px; transform:translateX(-50%);
+    background:rgba(8,8,15,.9); backdrop-filter:blur(12px);
+    border:1px solid var(--line); border-radius:12px;
+    padding:9px 18px; font-size:14px; color:var(--dim); max-width:92%;
+    text-align:center; opacity:0; transition:opacity .25s; pointer-events:none;
+  }
+  .cap.on{opacity:1}
+
+  /* reveal overlay */
+  .reveal{
+    position:absolute; inset:0; display:none; flex-direction:column;
+    align-items:center; justify-content:center; gap:8px;
+    background:radial-gradient(60% 60% at 50% 50%, rgba(8,8,15,.93), rgba(8,8,15,.985));
+    backdrop-filter:blur(7px); border-radius:20px;
+  }
+  .reveal.on{display:flex}
+  .reveal .lead{
+    color:var(--faint); font-size:clamp(10px,1.4vh,12px); letter-spacing:.24em;
+    text-transform:uppercase; font-weight:800;
+  }
+  .reveal .who{
+    font-size:clamp(38px,9vh,96px); font-weight:900; letter-spacing:-.03em; line-height:1.05;
+    background:linear-gradient(100deg,var(--good),var(--cool));
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+    font-variant-numeric:tabular-nums;
+  }
+  .reveal .who.rolling{
+    background:none; -webkit-text-fill-color:var(--faint); color:var(--faint);
+    opacity:.75; filter:blur(.4px);
+  }
+  .reveal .who.landed{animation:land .5s cubic-bezier(.2,1.7,.4,1)}
+  @keyframes land{
+    0%{transform:scale(.72); opacity:0}
+    60%{transform:scale(1.07)}
+    100%{transform:none; opacity:1}
+  }
+  .flash{
+    position:absolute; inset:0; border-radius:20px; pointer-events:none;
+    background:#fff; opacity:0;
+  }
+  .flash.go{animation:fl .45s ease-out}
+  @keyframes fl{0%{opacity:.5}100%{opacity:0}}
+
+  /* ---------------- scoreboard (doubles as the scoring control) --------- */
+  .board{flex:0 0 auto}
+  .board .ask{
+    text-align:center; color:var(--gold); font-size:clamp(10px,1.4vh,12px); font-weight:800;
+    letter-spacing:.2em; text-transform:uppercase; height:17px; margin-bottom:9px;
+    opacity:0; transition:opacity .2s;
+  }
+  .board .ask.on{opacity:1}
+  .chips{display:flex; flex-wrap:wrap; gap:8px; justify-content:center}
+  .chip{
+    background:var(--card); border:1px solid var(--line); color:var(--ink);
+    border-radius:999px; padding:9px 16px; font-weight:700;
+    font-size:clamp(13px,1.7vh,15px); display:flex; align-items:center; gap:8px;
+    position:relative; transition:all .18s;
+  }
+  .chip .k{color:#4a4a5e; font-size:10px; font-weight:900; min-width:7px}
+  .chip .sc{
+    color:var(--dim); font-size:12px; font-weight:900; min-width:14px; text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+  .chip .fire{font-size:11px; filter:saturate(1.3)}
+  .chip.lead{border-color:rgba(255,201,60,.55); background:rgba(255,201,60,.07)}
+  .chip.lead .sc{color:var(--gold)}
+  .chip.armed{cursor:pointer}
+  .chip.armed:hover{border-color:#50506a; transform:translateY(-1px)}
+  .chip.pick{
+    background:rgba(56,224,143,.15); border-color:var(--good); color:var(--good);
+    box-shadow:0 0 0 3px rgba(56,224,143,.1);
+  }
+  .chip.pick .sc,.chip.pick .k{color:var(--good)}
+  .chip.owner{opacity:.3}
+  .chip.bump .sc{animation:bump .4s cubic-bezier(.2,1.6,.4,1)}
+  @keyframes bump{0%{transform:scale(1)}45%{transform:scale(1.6); color:var(--good)}100%{transform:scale(1)}}
+
+  .actions{display:flex; gap:11px; justify-content:center; align-items:center; flex:0 0 auto}
+
+  /* ---------------- leaderboard ---------------- */
+  #s-board{align-items:center; justify-content:center}
+  .final{width:100%; max-width:560px; display:flex; flex-direction:column; min-height:0}
+  .final h2{
+    text-align:center; font-size:clamp(28px,6.5vh,58px); font-weight:900;
+    letter-spacing:-.03em; line-height:1.05;
+    background:linear-gradient(100deg,var(--gold),#ff9d3d);
+    -webkit-background-clip:text; background-clip:text; color:transparent;
+  }
+  .final .sub{text-align:center; color:var(--dim); margin:8px 0 clamp(14px,3vh,28px); font-size:clamp(13px,1.8vh,16px)}
+  .rows{overflow-y:auto; min-height:0}
+  .row{
+    display:flex; align-items:center; gap:14px; padding:clamp(9px,1.5vh,14px) 18px;
+    background:var(--card); border:1px solid var(--line);
+    border-radius:15px; margin-bottom:8px;
+    opacity:0; transform:translateY(14px); animation:rise .45s cubic-bezier(.2,.9,.3,1) forwards;
+  }
+  @keyframes rise{to{opacity:1; transform:none}}
+  .row .rk{width:26px; font-weight:900; font-size:clamp(14px,2vh,18px); color:var(--faint)}
+  .row .nm{flex:1; font-weight:800; font-size:clamp(15px,2.1vh,18px)}
+  .row .pt{font-weight:900; font-size:clamp(15px,2.1vh,18px); color:var(--dim); font-variant-numeric:tabular-nums}
+  .row.first{
+    border-color:var(--gold); background:rgba(255,201,60,.1);
+    box-shadow:0 0 0 1px rgba(255,201,60,.22), 0 12px 44px rgba(255,201,60,.12);
+  }
+  .row.first .rk,.row.first .pt{color:var(--gold)}
+  .row.first .nm{font-size:clamp(17px,2.4vh,21px)}
+
+  .toast{
+    position:fixed; left:50%; bottom:22px; transform:translateX(-50%) translateY(70px);
+    background:#1b1b26; border:1px solid var(--line); color:var(--ink);
+    padding:10px 20px; border-radius:12px; font-size:14px; font-weight:700;
+    z-index:60; opacity:0; transition:all .28s cubic-bezier(.2,.9,.3,1); pointer-events:none;
+  }
+  .toast.on{opacity:1; transform:translateX(-50%)}
+</style>
+</head>
+<body>
+
+<!-- ============ TITLE ============ -->
+<section id="s-title" class="screen on">
+  <div class="logo">Guess the<br>Repost</div>
+  <div class="blurb" id="blurb"></div>
+  <div class="roster" id="roster"></div>
+  <button class="big" id="startBtn">Start game</button>
+  <div class="hint">
+    <kbd>space</kbd> reveal / next &nbsp; <kbd>1</kbd>–<kbd>9</kbd> who got it &nbsp;
+    <kbd>H</kbd> hint &nbsp; <kbd>V</kbd> video &nbsp; <kbd>R</kbd> reload &nbsp; <kbd>U</kbd> undo &nbsp; <kbd>T</kbd> timer &nbsp;
+    <kbd>M</kbd> sound &nbsp; <kbd>F</kbd> fullscreen
+  </div>
+</section>
+
+<!-- ============ ROUND ============ -->
+<section id="s-round" class="screen">
+  <div class="topbar">
+    <span class="count" id="count"></span>
+    <span class="track"><i id="fill"></i></span>
+    <span class="ring" id="ring">
+      <svg width="38" height="38"><circle class="bg" cx="19" cy="19" r="16"></circle>
+      <circle class="fg" id="ringfg" cx="19" cy="19" r="16"></circle></svg>
+      <b id="ringnum"></b>
+    </span>
+  </div>
+
+  <div class="stage">
+    <div class="frame" id="frame">
+      <div class="cap" id="cap"></div>
+      <div class="reveal" id="rev">
+        <div class="lead">Reposted by</div>
+        <div class="who" id="who"></div>
+      </div>
+      <div class="flash" id="flash"></div>
+      <button class="play" id="play">▶<span>Play video</span></button>
+      <button class="play reload" id="reload">⟳<span>Reload video</span></button>
+    </div>
+  </div>
+
+  <div class="board">
+    <div class="ask" id="ask">Tap everyone who guessed right</div>
+    <div class="chips" id="chips"></div>
+  </div>
+
+  <div class="actions">
+    <button class="big" id="mainBtn">Reveal</button>
+    <button class="ghost" id="skipBtn">Skip</button>
+    <button class="ghost" id="endBtn">End game</button>
+  </div>
+</section>
+
+<!-- ============ LEADERBOARD ============ -->
+<section id="s-board" class="screen">
+  <div class="final">
+    <h2 id="crown"></h2>
+    <div class="sub" id="crownSub"></div>
+    <div class="rows" id="rows"></div>
+    <div class="actions" style="margin-top:22px">
+      <button class="big" onclick="location.reload()">Play again</button>
+    </div>
+  </div>
+</section>
+
+<div class="toast" id="toast"></div>
+
+<script src="https://stddielncxelpqangfyk.supabase.co/storage/v1/object/public/guess-the-repost/rounds.js"></script>
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+
+let PLAYERS = (window.PLAYERS || ["Simon"]).slice();
+let DECK = [];
+
+const S = {
+  i: 0, revealed: false, rolling: false,
+  picked: new Set(), scores: {}, streak: {},
+  history: [], mode: "video", timerOn: false, secs: 20, left: 0, tick: null, muted: false,
+};
+
+/* ---------------- sound (synthesised, no files) ---------------- */
+let actx = null;
+function audio(){
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch(e){ return null; } }
+  if (actx.state === "suspended") actx.resume();
+  return actx;
+}
+function tone(freq, dur, type = "sine", vol = .13, when = 0){
+  if (S.muted) return;
+  const a = audio(); if (!a) return;
+  const t = a.currentTime + when;
+  const o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t);
+  g.gain.setValueAtTime(0, t);
+  g.gain.linearRampToValueAtTime(vol, t + .012);
+  g.gain.exponentialRampToValueAtTime(.0001, t + dur);
+  o.connect(g).connect(a.destination);
+  o.start(t); o.stop(t + dur + .02);
+}
+const sfx = {
+  tick:   () => tone(760, .035, "square", .035),
+  land:   () => { tone(523,.14,"triangle",.16); tone(784,.3,"triangle",.13,.07); },
+  point:  () => tone(1050, .09, "triangle", .11),
+  unpoint:() => tone(420, .07, "sine", .07),
+  next:   () => tone(300, .07, "sine", .06),
+  warn:   () => tone(620, .1, "sawtooth", .07),
+  win:    () => [0,.1,.2,.34].forEach((d,k) => tone([523,659,784,1047][k], .42, "triangle", .14, d)),
+};
+
+/* ---------------- deck ---------------- */
+function shuffle(a){
+  for (let k = a.length - 1; k > 0; k--){
+    const j = Math.floor(Math.random() * (k + 1));
+    [a[k], a[j]] = [a[j], a[k]];
+  }
+  return a;
+}
+// Keep the same person off back-to-back rounds, so whoever contributed the
+// most content doesn't give themselves away by clustering.
+function spread(rs){
+  shuffle(rs);
+  for (let k = 1; k < rs.length; k++){
+    if (rs[k].answer !== rs[k-1].answer) continue;
+    const j = rs.findIndex((r, idx) =>
+      idx > k && r.answer !== rs[k-1].answer &&
+      (idx === rs.length - 1 || rs[idx+1].answer !== rs[k].answer));
+    if (j > -1) [rs[k], rs[j]] = [rs[j], rs[k]];
+  }
+  return rs;
+}
+
+/* ---------------- title ---------------- */
+function counts(){
+  const c = {};
+  (window.ROUNDS || []).forEach(r => c[r.answer] = (c[r.answer] || 0) + 1);
+  return c;
+}
+function drawRoster(){
+  const c = counts();
+  $("roster").innerHTML = PLAYERS.map((p, n) => {
+    const n2 = c[p] || 0;
+    return `<span class="p"><b>${esc(p)}</b>
+      <span class="ct ${n2 ? "has" : ""}">${n2}</span>
+      <button class="x" data-rm="${n}" title="remove">×</button></span>`;
+  }).join("") + `<button class="addp" id="addp">+ add</button>`;
+
+  $("roster").querySelectorAll("[data-rm]").forEach(b => b.onclick = () => {
+    PLAYERS.splice(+b.dataset.rm, 1); drawRoster(); drawBlurb();
+  });
+  $("addp").onclick = () => {
+    const nm = prompt("Player name?");
+    if (nm && nm.trim()){ PLAYERS.push(nm.trim()); drawRoster(); drawBlurb(); }
+  };
+}
+function drawBlurb(){
+  const rs = window.ROUNDS || [];
+  if (!rs.length){
+    $("blurb").innerHTML = "No reposts loaded — run <b>./build.sh</b> after filling media/.<br>"
+      + "Start anyway for a walkthrough of how a round plays.";
+    return;
+  }
+  const roster = new Set(PLAYERS);
+  const live = rs.filter(r => roster.has(r.answer));
+  const dropped = rs.length - live.length;
+  const have = new Set(live.map(r => r.answer));
+  const miss = PLAYERS.filter(p => !have.has(p));
+  const est = Math.round(live.length * 11 / 60);
+  $("blurb").innerHTML = `<b>${live.length}</b> reposts · ${have.size}/${PLAYERS.length} players loaded · ~${est} min`
+    + (miss.length ? `<br><span style="color:#ff9d3d">nothing yet for ${miss.map(esc).join(", ")}</span>` : "")
+    + (dropped ? `<br><span style="color:#6b6b80">${dropped} round${dropped > 1 ? "s" : ""} hidden — owner not on the roster</span>` : "");
+}
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ---------------- flow ---------------- */
+function show(id){
+  document.querySelectorAll(".screen").forEach(s => s.classList.remove("on"));
+  $(id).classList.add("on");
+}
+function toast(msg){
+  const t = $("toast"); t.textContent = msg; t.classList.add("on");
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove("on"), 1700);
+}
+
+function start(){
+  if (!PLAYERS.length){ toast("Add at least one player first"); return; }
+  audio();
+  // Only keep rounds whose answer is still on the roster. Removing someone who
+  // owns reposts would otherwise leave unguessable rounds in the deck.
+  const roster = new Set(PLAYERS);
+  const all = (window.ROUNDS || []);
+  const rs = all.filter(r => roster.has(r.answer));
+  const dropped = all.length - rs.length;
+  DECK = rs.length ? spread(rs)
+       : PLAYERS.slice(0, 4).map(p => ({ answer: p, demo: true }));
+  if (dropped) toast(`${dropped} round${dropped > 1 ? "s" : ""} skipped — owner not playing`);
+  PLAYERS.forEach(p => { S.scores[p] = 0; S.streak[p] = 0; });
+  S.i = 0; S.history = [];
+  show("s-round"); render();
+}
+
+function render(){
+  S.revealed = false; S.rolling = false; S.picked.clear();
+  $("rev").classList.remove("on");
+  $("who").classList.remove("landed", "rolling");
+  $("cap").classList.remove("on");
+  $("ask").classList.remove("on");
+  $("mainBtn").textContent = "Reveal";
+  $("skipBtn").style.display = "";
+
+  const r = DECK[S.i];
+  $("count").innerHTML = `${S.i + 1} <i>/ ${DECK.length}</i>`;
+  $("fill").style.width = (S.i / DECK.length * 100) + "%";
+  $("cap").textContent = r.note || "";
+
+  const f = $("frame");
+  f.querySelectorAll(".media").forEach(n => n.remove());
+  let el;
+  if (r.demo){
+    f.style.backgroundImage = ""; f.classList.remove("backed");
+    el = document.createElement("div");
+    el.className = "media empty";
+    el.innerHTML = `<b>Demo round</b><br>A repost fills this frame.<br><br>
+      Put images in <code>media/</code> named <code>${esc(r.answer.toLowerCase())}-1.jpg</code>,
+      then run <code>./build.sh</code>.`;
+  } else if (S.mode === "video" && r.embed){
+    // Paint the cover behind the iframe: TikTok's embed sometimes renders a
+    // blank black box, and a round you can't see is a round you can't guess.
+    f.style.backgroundImage = r.src ? `url("${r.src}")` : "";
+    f.classList.add("backed");
+    // Official TikTok embed: real video with sound. Needs network, and TikTok
+    // rate-limits aggressively — V falls back to covers if it won't load.
+    el = document.createElement("iframe");
+    el.className = "media"; el.src = embedSrc(r);
+    el.setAttribute("allow", "autoplay; encrypted-media; fullscreen");
+    el.setAttribute("scrolling", "no");
+    f.style.backgroundImage = ""; f.classList.remove("backed");
+  } else if (r.video){
+    el = document.createElement("video");
+    el.className = "media";
+    el.src = r.src;
+    if (r.poster) el.poster = r.poster;
+    el.autoplay = true; el.loop = true; el.playsInline = true;
+    el.controls = false;
+    el.muted = S.muted;
+    // Browsers block unmuted autoplay until the page has been interacted with.
+    // The host has always clicked Start by now, but fall back to muted rather
+    // than showing a frozen first frame.
+    el.play().catch(() => { el.muted = true; el.play().catch(() => {}); });
+    el.onclick = () => { el.muted = !el.muted; toast(el.muted ? "Muted" : "Sound on"); };
+  } else {
+    f.style.backgroundImage = ""; f.classList.remove("backed");
+    el = document.createElement("img");
+    el.className = "media"; el.src = r.src; el.alt = "repost";
+    if (r.embed){ el.style.cursor = "pointer"; el.onclick = () => playHere(); }
+  }
+  f.insertBefore(el, f.firstChild);
+  const canVid = !!r.embed && !r.video && !r.demo && !S.revealed;
+  $("play").style.display   = (canVid && S.mode === "cover") ? "flex" : "none";
+  $("reload").style.display = (canVid && S.mode === "video") ? "flex" : "none";
+  f.classList.remove("in"); void f.offsetWidth; f.classList.add("in");
+
+  // preload the next cover so the cut is instant
+  const nx = DECK[S.i + 1];
+  if (nx && nx.src) { const im = new Image(); im.src = nx.src; }
+
+  drawChips();
+  startTimer();
+}
+
+/* ---------------- the reveal ---------------- */
+function reveal(){
+  if (S.revealed || S.rolling) return;
+  stopTimer();
+  S.rolling = true;
+  $("rev").classList.add("on");
+  const whoEl = $("who"), answer = DECK[S.i].answer;
+  whoEl.classList.add("rolling");
+
+  // Spin through names, decelerating, then land. This beat is the whole game —
+  // without it the answer just appears and nobody reacts.
+  const pool = PLAYERS.length > 1 ? PLAYERS : [answer];
+  let t = 0, delay = 55;
+  const step = () => {
+    whoEl.textContent = pool[Math.floor(Math.random() * pool.length)];
+    sfx.tick();
+    t += delay; delay *= 1.17;
+    if (t < 1250) setTimeout(step, delay);
+    else land();
+  };
+  const land = () => {
+    whoEl.classList.remove("rolling");
+    whoEl.textContent = answer;
+    whoEl.classList.add("landed");
+    $("flash").classList.remove("go"); void $("flash").offsetWidth;
+    $("flash").classList.add("go");
+    sfx.land();
+    S.rolling = false; S.revealed = true;
+    $("mainBtn").textContent = "Next";
+    $("skipBtn").style.display = "none";
+    $("ask").classList.add("on");
+    $("play").style.display = "none";
+    $("reload").style.display = "none";
+    if (DECK[S.i].note) $("cap").classList.add("on");
+    drawChips();
+  };
+  step();
+}
+
+/* ---------------- scoreboard / scoring ---------------- */
+// Swap the current round from its cover to the real TikTok embed.
+function playHere(){
+  const r = DECK[S.i];
+  if (!r || !r.embed){ toast("No video for this round"); return; }
+  S.mode = "video";
+  render();
+}
+
+// Always request a unique URL. TikTok will otherwise serve a cached
+// "ratelimit triggered" page for the same URL even once the limit has lifted.
+function embedSrc(r){ return r.embed + "?t=" + Date.now(); }
+
+// TikTok rate-limits its embed endpoint aggressively: a couple of loads in
+// quick succession and it serves "ratelimit triggered" instead of the player.
+// This re-requests the current round's embed on demand.
+function reloadEmbed(){
+  const r = DECK[S.i];
+  if (!r || !r.embed){ toast("No video for this round"); return; }
+  S.mode = "video";
+  const f = $("frame");
+  f.querySelectorAll(".media").forEach(n => n.remove());
+  const el = document.createElement("iframe");
+  el.className = "media";
+  el.src = embedSrc(r);
+  el.setAttribute("allow", "autoplay; encrypted-media; fullscreen");
+  el.setAttribute("scrolling", "no");
+  f.insertBefore(el, f.firstChild);
+  toast("Reloading video…");
+}
+
+function drawChips(){
+  const owner = DECK[S.i] ? DECK[S.i].answer : null;
+  const best = Math.max(0, ...PLAYERS.map(p => S.scores[p] || 0));
+  $("chips").innerHTML = PLAYERS.map((p, n) => {
+    const isOwner = S.revealed && p === owner;
+    const cls = ["chip"];
+    if (S.revealed && !isOwner) cls.push("armed");
+    if (isOwner) cls.push("owner");
+    if (S.picked.has(p)) cls.push("pick");
+    if (!S.revealed && best > 0 && S.scores[p] === best) cls.push("lead");
+    const fire = S.streak[p] >= 2 ? `<span class="fire">🔥${S.streak[p]}</span>` : "";
+    return `<button class="${cls.join(" ")}" data-p="${n}">
+      <span class="k">${n + 1}</span>${esc(p)}${fire}
+      <span class="sc">${(S.scores[p] || 0) + (S.picked.has(p) ? 1 : 0)}</span></button>`;
+  }).join("");
+
+  // Always wire a handler. Before the reveal we answer with a nudge rather than
+  // ignoring the tap silently, which reads as the scoreboard being broken.
+  $("chips").querySelectorAll("[data-p]").forEach(b => {
+    const p = PLAYERS[+b.dataset.p];
+    b.onclick = () => {
+      if (!S.revealed){ toast("Reveal first, then tap who got it"); return; }
+      if (p === owner){ toast(`That's ${p}'s own repost`); return; }
+      toggle(p);
+    };
+  });
+}
+function toggle(p){
+  if (!S.revealed) return;
+  if (S.picked.has(p)) { S.picked.delete(p); sfx.unpoint(); }
+  else { S.picked.add(p); sfx.point(); }
+  drawChips();
+}
+
+function commit(){
+  const got = [...S.picked];
+  S.history.push({ i: S.i, got, streaks: { ...S.streak } });
+  PLAYERS.forEach(p => {
+    if (S.picked.has(p)) { S.scores[p]++; S.streak[p] = (S.streak[p] || 0) + 1; }
+    else S.streak[p] = 0;
+  });
+  const hot = got.filter(p => S.streak[p] >= 3);
+  if (hot.length) toast(`${hot.join(" & ")} on a ${S.streak[hot[0]]} streak 🔥`);
+  else if (!got.length) toast("Nobody got that one");
+}
+
+function next(){
+  commit(); sfx.next(); S.i++;
+  if (S.i >= DECK.length) finish(); else render();
+}
+function skip(){
+  if (S.revealed) return;
+  DECK.splice(S.i, 1);
+  if (!DECK.length || S.i >= DECK.length) return finish();
+  render();
+}
+function undo(){
+  if (!S.history.length) { toast("Nothing to undo"); return; }
+  const h = S.history.pop();
+  h.got.forEach(p => S.scores[p]--);
+  S.streak = h.streaks;
+  S.i = h.i;
+  show("s-round"); render();
+  toast("Round " + (S.i + 1) + " reset");
+}
+
+/* ---------------- timer ---------------- */
+const CIRC = 2 * Math.PI * 16;
+function startTimer(){
+  stopTimer();
+  if (!S.timerOn) { $("ring").classList.remove("on"); return; }
+  $("ring").classList.add("on");
+  S.left = S.secs; paintRing();
+  S.tick = setInterval(() => {
+    S.left--;
+    paintRing();
+    if (S.left <= 5 && S.left > 0) sfx.warn();
+    if (S.left <= 0){ stopTimer(); reveal(); }
+  }, 1000);
+}
+function stopTimer(){ if (S.tick) clearInterval(S.tick); S.tick = null; }
+function paintRing(){
+  const f = Math.max(0, S.left) / S.secs;
+  const fg = $("ringfg");
+  fg.style.strokeDasharray = CIRC;
+  fg.style.strokeDashoffset = CIRC * (1 - f);
+  $("ringnum").textContent = Math.max(0, S.left);
+  $("ring").classList.toggle("warn", S.left <= 5);
+}
+
+/* ---------------- finish ---------------- */
+function finish(){
+  stopTimer(); show("s-board");
+  const played = S.history.length;
+  const ranked = PLAYERS.map(p => [p, S.scores[p] || 0]).sort((a, b) => b[1] - a[1]);
+  const best = ranked.length ? ranked[0][1] : 0;
+  const champs = ranked.filter(([, v]) => v === best).map(([k]) => k);
+
+  if (!best){
+    $("crown").textContent = "Nobody scored";
+    $("crownSub").textContent = "Genuinely impressive. You all know nothing about each other.";
+  } else if (champs.length > 1){
+    $("crown").textContent = champs.join(" & ");
+    $("crownSub").textContent = `tied on ${best} — somebody settle this`;
+  } else {
+    $("crown").textContent = champs[0];
+    $("crownSub").textContent = `knows you all best · ${best} of ${played}`;
+    sfx.win();
+  }
+
+  // Build bottom-up so the winner's row lands last.
+  $("rows").innerHTML = ranked.map(([p, v], n) =>
+    `<div class="row ${n === 0 && best ? "first" : ""}"
+          style="animation-delay:${(ranked.length - 1 - n) * 90}ms">
+       <span class="rk">${n + 1}</span>
+       <span class="nm">${esc(p)}</span>
+       <span class="pt">${v}</span>
+     </div>`).join("");
+}
+
+/* ---------------- wiring ---------------- */
+$("startBtn").onclick = start;
+$("mainBtn").onclick = () => S.revealed ? next() : reveal();
+$("skipBtn").onclick = skip;
+$("play").onclick = playHere;
+$("reload").onclick = reloadEmbed;
+$("endBtn").onclick = () => { if (S.revealed) commit(); finish(); };
+
+document.addEventListener("keydown", e => {
+  const onTitle = $("s-title").classList.contains("on");
+  const onRound = $("s-round").classList.contains("on");
+  const k = e.key.toLowerCase();
+
+  if (k === "f"){ e.preventDefault();
+    document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+    return;
+  }
+  if (k === "m"){
+    S.muted = !S.muted;
+    const v = $("frame").querySelector("video");
+    if (v) v.muted = S.muted;
+    toast(S.muted ? "Sound off" : "Sound on");
+    return;
+  }
+  if (k === "t"){
+    S.timerOn = !S.timerOn;
+    toast(S.timerOn ? `Timer on · ${S.secs}s` : "Timer off");
+    if (onRound && !S.revealed) startTimer();
+    return;
+  }
+  if (onTitle && e.code === "Space"){ e.preventDefault(); start(); return; }
+  if (!onRound) return;
+
+  if (e.code === "Space"){ e.preventDefault(); S.revealed ? next() : reveal(); return; }
+  if (k === "u"){ e.preventDefault(); undo(); return; }
+  if (k === "h"){ $("cap").classList.toggle("on"); return; }
+  if (k === "r"){ e.preventDefault(); reloadEmbed(); return; }
+  if (k === "v"){
+    const r = DECK[S.i];
+    if (!r || !r.embed){ toast("No video for this round"); return; }
+    S.mode = S.mode === "video" ? "cover" : "video";
+    toast(S.mode === "video" ? "Videos on — needs wifi" : "Back to covers");
+    render();
+    return;
+  }
+  if (S.revealed && /^[1-9]$/.test(e.key)){
+    const p = PLAYERS[+e.key - 1];
+    if (p && p !== DECK[S.i].answer) toggle(p);
+  }
+});
+
+// index.html?video=1 starts in embed mode, for when you know wifi is good.
+if (/[?&]video=1/.test(location.search)) S.mode = "video";
+if (/[?&]covers=1/.test(location.search)) S.mode = "cover";
+
+drawRoster(); drawBlurb();
+</script>
+</body>
+</html>
